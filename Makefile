@@ -10,8 +10,10 @@ UGLIFYJS=$(PYODIDE_ROOT)/node_modules/.bin/uglifyjs
 CPYTHONROOT=cpython
 CPYTHONLIB=$(CPYTHONROOT)/installs/python-$(PYVERSION)/lib/python$(PYMINOR)
 
-CC=emcc
-CXX=em++
+#CC=emcc
+#CXX=em++
+CC=$(WASI_SDK_PATH)/bin/clang
+CXX=$(WASI_SDK_PATH)/bin/clang++
 OPTFLAGS=-O2
 CFLAGS=\
 	$(OPTFLAGS) \
@@ -46,35 +48,20 @@ LDFLAGS=\
 	$(EXTRA_LDFLAGS)
 
 all: check \
-	build/pyodide.asm.js \
-	build/pyodide.js \
-	build/console.html \
-	build/test.data \
-	build/packages.json \
-	build/test.html \
-	build/webworker.js \
-	build/webworker_dev.js
+	build/pyodide.asm.bc \
+	build/packages.bc
 	echo -e "\nSUCCESS!"
 
 
-build/pyodide.asm.js: \
-	src/core/error_handling.o \
-	src/core/hiwire.o \
-	src/core/js2python.o \
-	src/core/jsproxy.o \
-	src/core/keyboard_interrupt.o \
-	src/core/main.o  \
-	src/core/pyproxy.o \
-	src/core/python2js_buffer.o \
-	src/core/python2js.o \
+build/pyodide.asm.bc: \
 	src/pystone.py \
 	src/_testcapi.py \
 	src/webbrowser.py \
 	$(wildcard src/pyodide-py/pyodide/*.py) \
 	$(CPYTHONLIB)
-	date +"[%F %T] Building pyodide.asm.js..."
+	date +"[%F %T] Building pyodide.asm.bc..."
 	[ -d build ] || mkdir build
-	$(CXX) -s EXPORT_NAME="'pyodide'" -o build/pyodide.asm.js $(filter %.o,$^) \
+	$(CXX) -s EXPORT_NAME="'pyodide'" -o build/pyodide.asm.bc $(filter %.o,$^) \
 		$(LDFLAGS) -s FORCE_FILESYSTEM=1 \
 		--preload-file $(CPYTHONLIB)@/lib/python$(PYMINOR) \
 		--preload-file src/webbrowser.py@/lib/python$(PYMINOR)/webbrowser.py \
@@ -83,38 +70,11 @@ build/pyodide.asm.js: \
 		--preload-file src/pyodide-py/pyodide@/lib/python$(PYMINOR)/site-packages/pyodide \
 		--exclude-file "*__pycache__*" \
 		--exclude-file "*/test/*"
-	date +"[%F %T] done building pyodide.asm.js."
+	date +"[%F %T] done building pyodide.asm.bc."
 
 
 env:
 	env
-
-
-build/pyodide.js: src/pyodide.js
-	cp $< $@
-	sed -i -e 's#{{ PYODIDE_BASE_URL }}#$(PYODIDE_BASE_URL)#g' $@
-
-
-build/test.html: src/templates/test.html
-	cp $< $@
-
-
-build/console.html: src/templates/console.html
-	cp $< $@
-	sed -i -e 's#{{ PYODIDE_BASE_URL }}#$(PYODIDE_BASE_URL)#g' $@
-
-
-build/webworker.js: src/webworker.js
-	cp $< $@
-	sed -i -e 's#{{ PYODIDE_BASE_URL }}#$(PYODIDE_BASE_URL)#g' $@
-
-build/webworker_dev.js: src/webworker.js
-	cp $< $@
-	sed -i -e 's#{{ PYODIDE_BASE_URL }}#./#g' $@
-
-test: all
-	pytest src emsdk/tests packages/*/test* pyodide_build -v
-
 
 lint:
 	# check for unused imports, the rest is done by black
@@ -127,20 +87,13 @@ lint:
 apply-lint:
 	./tools/apply-lint.sh
 
-benchmark: all
-	python benchmark/benchmark.py $(HOSTPYTHON) build/benchmarks.json
-	python benchmark/plot_benchmark.py build/benchmarks.json build/benchmarks.png
-
-
 clean:
 	rm -fr build/*
 	rm -fr src/*.o
-	rm -fr node_modules
-	make -C packages clean
-	echo "The Emsdk, CPython are not cleaned. cd into those directories to do so."
+
 
 clean-all: clean
-	make -C emsdk clean
+	make -C clean
 	make -C cpython clean
 	rm -fr cpython/build
 
@@ -160,25 +113,15 @@ build/test.data: $(CPYTHONLIB) $(UGLIFYJS)
 	$(UGLIFYJS) build/test.js -o build/test.js
 
 
-$(UGLIFYJS): emsdk/emsdk/.complete
-	npm i --no-save uglify-js
-	touch -h $(UGLIFYJS)
-
-
-$(CPYTHONLIB): emsdk/emsdk/.complete $(PYODIDE_EMCC) $(PYODIDE_CXX)
+$(CPYTHONLIB): $(PYODIDE_CXX)
 	date +"[%F %T] Building cpython..."
 	make -C $(CPYTHONROOT)
 	date +"[%F %T] done building cpython..."
 
-build/packages.json: FORCE
-	date +"[%F %T] Building packages..."
-	make -C packages
-	date +"[%F %T] done building packages..."
-
-emsdk/emsdk/.complete:
-	date +"[%F %T] Building emsdk..."
-	make -C emsdk
-	date +"[%F %T] done building emsdk."
+build/packages.bc: FORCE
+ 	date +"[%F %T] Building packages..."
+ 	make -C packages
+ 	date +"[%F %T] done building packages..."
 
 FORCE:
 
